@@ -333,25 +333,23 @@ class BaseAWQForCausalLM(nn.Module):
             config = AutoConfig.from_pretrained(model_path, trust_remote_code=trust_remote_code)
             config.max_new_tokens = max_new_tokens
         
-        # [STEP 3] Load model
-        with init_empty_weights():
-            model = AutoModelForCausalLM.from_config(config=config, torch_dtype=torch_dtype, trust_remote_code=trust_remote_code)
+        if is_quantized:
+            # [STEP 3] Load model
+            with init_empty_weights():
+                model = AutoModelForCausalLM.from_config(config=config, torch_dtype=torch_dtype, trust_remote_code=trust_remote_code)
         
         # Only need to replace layers if a model is AWQ quantized
-        if is_quantized:
             # Prepare WQLinear layers, replace nn.Linear
             self._load_quantized_modules(self, model, quant_config, quant_config["version"])
         
-        model.tie_weights()
+            model.tie_weights()
 
-        device_map = infer_auto_device_map(
-            model,
-            no_split_module_classes=[self.layer_type], 
-            dtype=torch_dtype
-        )
+            device_map = infer_auto_device_map(
+                model,
+                no_split_module_classes=[self.layer_type], 
+                dtype=torch_dtype
+            )
 
-        # Load model weights
-        if is_quantized:
             load_checkpoint_in_model(
                 model,
                 checkpoint=model_weights_path,
@@ -364,18 +362,15 @@ class BaseAWQForCausalLM(nn.Module):
                 self.fuse_layers(model, quant_config)
 
         else:
-            # If not quantized, must load with AutoModelForCausalLM
-            del model
-            
             # Load model weights
             model = AutoModelForCausalLM.from_pretrained(
                 model_weights_path, 
-                device_map=device_map, 
+                low_cpu_mem_usage=True,
+                #device_map=device_map, 
                 trust_remote_code=trust_remote_code, 
-                offload_folder="offload", 
-                offload_state_dict=True, 
-                torch_dtype=torch_dtype, 
-                use_safetensors=safetensors
+                #offload_folder="offload", 
+                #offload_state_dict=True, 
+                torch_dtype=torch_dtype
             )
             model.eval()
 
